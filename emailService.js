@@ -1,16 +1,17 @@
-const { google } = require("googleapis");
-const nodemailer = require("nodemailer");
+import nodemailer from "nodemailer";
+import { google } from "googleapis";
 
 const oAuth2Client = new google.auth.OAuth2(
   process.env.CLIENT_ID,
   process.env.CLIENT_SECRET,
   process.env.REDIRECT_URI
 );
+
 oAuth2Client.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
 
-async function sendAutoReply(toEmail, userName) {
+export const sendAutoReply = async (toEmail, senderName) => {
   try {
-    const accessToken = (await oAuth2Client.getAccessToken()).token;
+    const accessToken = await oAuth2Client.getAccessToken();
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
@@ -20,19 +21,21 @@ async function sendAutoReply(toEmail, userName) {
         clientId: process.env.CLIENT_ID,
         clientSecret: process.env.CLIENT_SECRET,
         refreshToken: process.env.REFRESH_TOKEN,
-        accessToken: accessToken,
+        accessToken: accessToken.token,
       },
     });
 
-    await transporter.sendMail({
-      from: `"Ciise Caalim" <${process.env.EMAIL_USER}>`,
-      to: toEmail,
-      subject: "Waad ku mahadsan tahay fariintaada",
-      html: `<h2>Asc ${userName} 👋</h2><p>Waad ku mahadsan tahay fariintaada.</p>`,
-    });
+    const mailOptions = {
+      from: `"Your Name" <${process.env.EMAIL_USER}>`,
+      to: toEmail, // email-ka soo diraha
+      subject: "Thank you for contacting me!",
+      text: `Hi ${senderName},\n\nThank you for contacting me. I will get back to you shortly!`,
+    };
 
-    console.log("✅ Auto-reply email sent successfully");
-  } catch (err) {
-    console.error("❌ Error sending auto-reply:", err);
+    const result = await transporter.sendMail(mailOptions);
+    return result;
+  } catch (error) {
+    console.log(error);
+    return error;
   }
-}
+};
