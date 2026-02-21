@@ -1,12 +1,15 @@
+// controllers/contactController.js
 const Message = require('../models/Message');
 const nodemailer = require('nodemailer');
 
-// Gmail App Password Transporter
+// Gmail App Password Transporter (Explicit host/port)
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 465,        // secure port for Gmail
+  secure: true,     // true for 465
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS, // App Password
+    user: process.env.EMAIL_USER, // ciisecaalim@gmail.com
+    pass: process.env.EMAIL_PASS, // Gmail App Password
   },
 });
 
@@ -39,6 +42,7 @@ exports.sendMessage = async (req, res) => {
     if (!name || !email || !message)
       return res.status(400).json({ message: 'All fields required' });
 
+    // Save message to DB
     const newMessage = await Message.create({ name, email, message });
 
     // Send auto-reply asynchronously
