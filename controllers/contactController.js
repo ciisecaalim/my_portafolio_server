@@ -1,106 +1,99 @@
+// controllers/contactController.js
 const Message = require('../models/Message');
+const { google } = require('googleapis');
 const nodemailer = require('nodemailer');
 
-// Email transporter
-const createTransporter = () => {
-    console.log("Creating email transporter...");
-    return nodemailer.createTransport({
-        host: "smtp.gmail.com",
-        port: 465,
-        secure: true,
-        auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS
-        },
-        family: 4
+const oAuth2Client = new google.auth.OAuth2(
+  process.env.CLIENT_ID,
+  process.env.CLIENT_SECRET,
+  process.env.REDIRECT_URI
+);
+
+oAuth2Client.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
+
+// Function to send auto-reply email using Gmail OAuth2
+async function sendAutoReply(toEmail, userName) {
+  try {
+    const accessToken = await oAuth2Client.getAccessToken();
+
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        type: 'OAuth2',
+        user: process.env.EMAIL_USER,
+        clientId: process.env.CLIENT_ID,
+        clientSecret: process.env.CLIENT_SECRET,
+        refreshToken: process.env.REFRESH_TOKEN,
+        accessToken: accessToken.token,
+      },
     });
-};
 
-// Send message + auto-reply
+    await transporter.sendMail({
+      from: `"Ciise Caalim" <${process.env.EMAIL_USER}>`,
+      to: toEmail,
+      subject: 'Waad ku mahadsan tahay fariintaada',
+      html: `
+        <h2>Asc ${userName} 👋</h2>
+        <p>Waad ku mahadsan tahay fariintaada.</p>
+        <p>Waan kula soo xiriiri doonaa sida ugu dhaqsaha badan.</p>
+        <br/>
+        <b>Best Regards,</b>
+        <p>Ciise Caalim</p>
+      `,
+    });
+
+    console.log('✅ Auto-reply email sent to:', toEmail);
+  } catch (err) {
+    console.error('❌ Failed to send auto-reply:', err);
+  }
+}
+
+// POST /api/contact → save message & send auto-reply
 exports.sendMessage = async (req, res) => {
-    console.log("📩 /api/contact called");
-    console.log("Request Body:", req.body);
+  try {
+    const { name, email, message } = req.body;
 
-    try {
-        const { name, email, message } = req.body;
-
-        if (!name || !email || !message) {
-            console.log("❌ Missing fields");
-            return res.status(400).json({ message: "All fields are required" });
-        }
-
-        console.log("💾 Saving message to MongoDB...");
-        const newMessage = await Message.create({ name, email, message });
-        console.log("✅ Message saved:", newMessage._id);
-
-        // Respond first
-        res.status(201).json({ success: true, message: "Message sent successfully" });
-
-        // Auto-reply email
-        if (process.env.EMAIL_USER && process.env.EMAIL_PASS && email) {
-            try {
-                console.log("📧 Sending auto-reply email...");
-
-                const transporter = createTransporter();
-
-                await transporter.sendMail({
-                    from: `"Ciise Caalim" <${process.env.EMAIL_USER}>`,
-                    to: email,
-                    subject: "Waad ku mahadsan tahay fariintaada",
-                    html: `
-                        <h2>Asc ${name} 👋</h2>
-                        <p>Waad ku mahadsan tahay fariintaada.</p>
-                        <p>Waan kula soo xiriiri doonaa sida ugu dhaqsaha badan.</p>
-                        <br/>
-                        <b>Best Regards,</b>
-                        <p>Ciise Caalim</p>
-                    `
-                });
-
-                console.log("✅ Auto-reply email sent");
-
-                newMessage.replied = true;
-                newMessage.repliedAt = new Date();
-                await newMessage.save();
-
-            } catch (emailError) {
-                console.error("❌ Auto-reply email failed:", emailError);
-            }
-        } else {
-            console.log("⚠️ Email credentials missing, skipping auto-reply");
-        }
-
-    } catch (err) {
-        console.error("🔥 SEND MESSAGE ERROR:");
-        console.error(err);
-        res.status(500).json({ message: "Server error", error: err.message });
+    if (!name || !email || !message) {
+      return res.status(400).json({ message: 'All fields are required' });
     }
+
+    // Save to MongoDB
+    const newMessage = await Message.create({ name, email, message });
+
+    // Send auto-reply (async, no need to block response)
+    sendAutoReply(email, name)
+      .then(() => {
+        newMessage.replied = true;
+        newMessage.repliedAt = new Date();
+        return newMessage.save();
+      })
+      .catch((err) => console.error('Auto-reply save failed:', err));
+
+    res.status(201).json({ success: true, message: 'Message received and auto-reply sent!' });
+  } catch (err) {
+    console.error('🔥 SEND MESSAGE ERROR:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
 };
 
-// Get all messages
+// GET /api/contact → get all messages
 exports.getMessages = async (req, res) => {
-    console.log("📥 GET /api/contact");
-
-    try {
-        const messages = await Message.find().sort({ createdAt: -1 });
-        console.log("✅ Messages fetched:", messages.length);
-        res.json(messages);
-    } catch (err) {
-        console.error("🔥 GET MESSAGES ERROR:", err);
-        res.status(500).json({ message: err.message });
-    }
+  try {
+    const messages = await Message.find().sort({ createdAt: -1 });
+    res.json(messages);
+  } catch (err) {
+    console.error('🔥 GET MESSAGES ERROR:', err);
+    res.status(500).json({ message: err.message });
+  }
 };
 
-// Delete message
+// DELETE /api/contact/:id → delete message
 exports.deleteMessage = async (req, res) => {
-    console.log("🗑 DELETE /api/contact/:id", req.params.id);
-
-    try {
-        await Message.findByIdAndDelete(req.params.id);
-        console.log("✅ Message deleted");
-        res.json({ message: "Deleted successfully" });
-    } catch (err) {
-        console.error("🔥 DELETE ERROR:", err);
-        res.status(500).json({ message: err.message });
-    }
+  try {
+    await Message.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Deleted successfully' });
+  } catch (err) {
+    console.error('🔥 DELETE ERROR:', err);
+    res.status(500).json({ message: err.message });
+  }
 };
